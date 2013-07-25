@@ -1,0 +1,321 @@
+
+This post details how to add custom interactions to your Sencha Touch charts. After reading this post, you should have a better understanding of how to perform the following tasks:
+
+<ul>
+<li>Define Custom Chart Interactions</li>
+<li>Programmatically hide series</li>
+<li>Define custom Sprites</li>
+<li>Animate Sprites</li>
+</ul>
+
+The example that I'll be detailing enables a user to click on a pie chart slice, which then causes an animated Klingon battle cruiser to come on screen, fire a photon, and "destroy" the selected pie slice.
+
+
+<h3>Defining and Using Custom Chart Interactions</h3>
+
+Sencha Touch's charting packages comes with a limited number of interactions, giving the user the ability rotate a pie chart, highlight series items, pan/zoom, and longpress on a series data point to popup a panel.  You add interactive behaviors to your charts through the <em>interactions</em> array as illustrated by the following snippet:
+
+[sourcecode language="javascript"]
+{
+  xtype: 'polar',
+  interactions: ['rotate'],
+  animate: true,
+  colors: ["#115fa6", "#94ae0a", "#a61120", "#ff8809", "#ffd13e"],
+  store: {
+    fields: ['name', 'data1', 'data2', 'data3', 'data4', 'data5'],
+    data: [
+     {'name': 'metric one', 'data1': 10},
+     {'name': 'metric two', 'data1': 7}, 
+     {'name': 'metric three','data1': 5},
+     {'name': 'metric four','data1': 2}, 
+     {'name': 'metric five','data1': 27}
+    ]
+  },
+  series: [
+   {
+    type: 'pie',
+    field: 'data1',
+    donut: 30,
+    labelField: 'name',
+    showInLegend: true
+   }
+  ],
+  legend: { docked: 'bottom' }
+ }
+[/sourcecode]
+
+But what if you wanted to add your own interactions? Well, it's relatively simple to do so - just extend the Ext.chart.interactions.Abstract class as illustrated below. This simple interaction invokes the <em>onGesture</em> method when a user taps on a data point of a series, giving you access to a wealth of information about the datum that was selected.
+
+[sourcecode language="javascript"]
+Ext.define('SpriteFun.view.interactions.klingon.Klingon', {
+
+    extend: 'Ext.chart.interactions.Abstract',
+    type: 'klingon',
+    alias: 'interaction.klingon',
+
+    config: {
+        /**
+         * @cfg {String} gesture
+         * Defines the gesture type that should trigger item highlighting.
+         */
+        gesture: 'tap'
+    },
+
+    getGestures: function() {
+        var gestures = {};
+        gestures['item' + this.getGesture()] = 'onGesture';
+        gestures[this.getGesture()] = 'onFailedGesture';
+        return gestures;
+    },
+
+    onGesture: function(series, item, e) {
+
+        e.highlightItem = item;
+        var chart = item.sprite.getParent().getParent();
+
+        // ALL KINDS OF GREAT INFO AVAILABLE HERE
+        // VIA THE series AND item ARGUMENTS
+
+    },
+
+    onFailedGesture: function(e) {
+        this.getChart().setHighlightItem(e.highlightItem || null);
+        this.sync();
+    }
+});
+[/sourcecode]
+
+
+Now, you're probably figured out by now from looking at the name of the interaction that I'm going to take you down an interesting path. So swallow the red pill and buckle up.
+
+<h3>Programmatically Hiding Series</h3>
+
+Chart legends use their own store which is dynamically generated at runtime by Sencha Touch. Toggling the <em>disabled</em> property of a legend item causes the corresponding data to be hidden in the chart. You can easily add this behavior to your custom interactions by modifying the onGesture method as illustrated by the following snippet: 
+
+[sourcecode language="javascript"]
+onGesture: function(series, item, e) {
+
+    e.highlightItem = item;
+    
+    // hide series
+
+    // get pointer to top of chart from the sprite that was tapped
+    var chart = item.sprite.getParent().getParent();
+
+    if (chart.getLegend()) {
+
+      // get the legend's store
+      var legendStore = top.getLegend().getStore();
+      
+      // locate the instance that was tapped on
+      var record = legendStore.getAt(legendStore.find('name', item.record.get('name')));
+      
+      // toggle the visibility
+      record.beginEdit();
+      record.set('disabled', !record.get('disabled'));
+      record.commit();
+
+      return false;
+     }
+
+ }
+[/sourcecode]
+
+<h3>Defining and Animating Image Sprites</h3>
+
+As illustrated below, defining image sprites is actually quite a bit different than extending other classes in Sencha Touch. The class system in the sprite package is significantly different from the rest of the native view classes and, to be brutally honest, isn't particularly well documented at any level. Nevertheless, the following example illustrates how to both define and animate a sprite. Note the following:
+
+<ul>
+<li>Custom attributes must be loosely typed via the <li>processors</li> object</li>
+<li>Attributes are referenced as <em>this.attr.attributename</em>. Custom getters are <em>not</em> automatically created.</li>
+<li>You can fire an event listener when an animation has completed by calling this.fx.on('animationend',function)</li>
+<li>Animating sprites is simple - just call this.fx.setDuration(ms) and any changes that you make to a sprite will be gradually phased in over the time period that you specify</li>
+<li>Use this.setAttributes() to change any of the sprite's attributes - including width, height, x/y position, and rotation</li>
+<li>Once a sprite has been instantiated on a draw component, you can reference that draw component from within the sprite as this.getParent()</li>
+</ul>
+
+[sourcecode language="javascript"]
+Ext.define('SpriteFun.view.interactions.klingon.sprites.Klingon', {
+	extend: 'Ext.draw.sprite.Image',
+	alias: 'sprite.klingon',
+
+	inheritableStatics: {
+		def: {
+			processors: {
+				torpedo: 'string',
+				targetX: 'string',
+				targetY: 'string'
+			},
+			defaults: {
+				src: 'resources/images/klingon.png',
+				torpedo: "photontorpedo",
+				width: 200,
+				height: 70
+			}
+		}
+	},
+
+
+	firedPhoton: false,
+	markedForDeath: false, // semaphore - klingon must be offscreen *and* photon must have exploded before sprite can be destroyed
+
+    
+    // at random juncture in path, fire the photon, then continue on.
+	setNewCourse: function() {
+
+		this.rand = Math.random();
+
+		this.fx.on('animationend', this.onAnimationEnd, this);
+
+		if (!this.firedPhoton) {
+			this.fx.setDuration(2000 * this.rand);
+			this.setAttributes({
+				x: Math.floor(this.rand * this.w)
+			});
+		} else {
+			this.fx.setDuration(2000 - (2000 * this.rand));
+			this.setAttributes({
+				x: this.w
+			});
+		}
+	},
+
+	constructor: function() {
+
+		this.callParent(arguments);
+
+		var surface = this.config.surface;
+		var me = this;
+
+		// get width and height of chart
+		this.w = surface.element.getWidth();
+		this.h = surface.element.getHeight();
+
+		// always start on random line
+		this.setAttributes({
+			x: this.attr.width * -1,
+			y: Math.floor(Math.random() * (this.h - this.attr.height))
+		})
+		this.setNewCourse();
+
+	},
+
+
+	onAnimationEnd: function() {
+		if (!this.firedPhoton) {
+			this.firePhoton();
+			this.firedPhoton = true;
+			this.setNewCourse();
+		} else {
+			if (this.markedForDeath)
+				this.destroy();
+			else
+				this.markedForDeath = true;
+		}
+	},
+
+
+	// instantiate the photon torpedo sprite
+	firePhoton: function() {
+
+		if (this.attr.x + this.attr.width > this.attr.targetX) {
+			var startX = this.attr.x;
+		} else {
+			var startX = this.attr.x + this.attr.width + 5;
+		}
+
+		var startY = Math.floor(this.attr.y + (this.attr.height / 2));
+
+		var photonfired = this.getParent().add({
+			type: this.attr.torpedo,
+			x: startX,
+			y: startY,
+			height: 50,
+			width: 50,
+			photonType: this.attr.enemyType,
+			to: {
+				x: this.config.targetX,
+				y: this.config.targetY,
+				duration: 1500,
+				rotatonRads: 3
+			}
+		});
+
+		var me = this;
+		photonfired.on('explosion', function(photon) {
+			me.fireEvent('explosion', me, me.config.dataItem);
+			photon.destroy();
+			if (me.markedForDeath)
+				me.destroy();
+			else
+				me.markedForDeath = true;
+		});
+
+	}
+
+});
+
+[/sourcecode]
+
+The Photon Torpedo sprite, by comparison, is quite straightforward. It just needs to travel to 
+the location that was passed in at runtime.
+
+[sourcecode language="javascript"]
+Ext.define('SpriteFun.view.interactions.klingon.sprites.Photon', {
+	extend: 'Ext.draw.sprite.Image',
+	alias: 'sprite.photontorpedo',
+	inheritableStatics: {
+		def: {
+			
+			// define custom config properties
+			processors: {
+				
+			},
+
+			// set default config properties
+			defaults: {
+				src: 'resources/images/photon.png' 
+			}
+		}
+	},
+	
+	
+	constructor: function(config) {
+		this.callParent(arguments);
+		this.firePhoton();
+	},
+
+    // custom method
+	firePhoton: function() {
+		
+		// set duration of animation in ms
+		this.fx.setDuration(Math.floor(this.config.to.duration));
+
+		// set easing effect of animation
+		this.fx.setEasing('easeOut');
+
+		// invoke method when animation has completed
+		this.fx.on('animationend', this.onAnimationEnd, this);
+
+		// define the animation
+		this.setAttributes({
+			x: this.config.to.x, 
+			y: this.config.to.y,
+			rotationRads: 3,
+			width: 25,
+			height: 25
+		});
+	},
+
+	onAnimationEnd: function(animation) {
+		this.fireEvent('explosion',this);
+	}
+});
+[/sourcecode]
+
+<h3>Putting it all together</h3>
+
+<ul>
+<li>Run the example from <a href="http://webapps.figleaf.com/chartinteractions" target="_blank">http://webapps.figleaf.com/chartinteractions</a></li>
+<li>Check out the sourcecode on github at http://
+ 
