@@ -8,6 +8,7 @@ Ext.define('SpriteFun.view.interactions.klingon.Klingon', {
 
     type: 'klingon',
     alias: 'interaction.klingon',
+    torpedoSize: 25,
 
     config: {
         /**
@@ -47,8 +48,8 @@ Ext.define('SpriteFun.view.interactions.klingon.Klingon', {
 
         var ship = series.getOverlaySurface().add({
             type: 'klingon',
-            targetX: e.pageX - chart.element.getX(),
-            targetY: e.pageY - chart.element.getY(),
+            targetX: e.pageX - chart.element.getX() - this.torpedoSize, 
+            targetY: e.pageY - chart.element.getY() - this.torpedoSize,
             surface: series.getOverlaySurface(),
             dataItem: item
         });

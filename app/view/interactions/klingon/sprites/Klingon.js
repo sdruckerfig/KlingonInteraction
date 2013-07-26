@@ -53,7 +53,7 @@ Ext.define('SpriteFun.view.interactions.klingon.sprites.Klingon', {
 		this.h = surface.element.getHeight();
 		this.setAttributes({
 			x: this.attr.width * -1,
-			y: Math.floor(Math.random() * (this.h - this.attr.height))
+			y: Math.floor(Math.random() * (this.h - this.attr.height - 30))
 		})
 		this.setNewCourse();
 
